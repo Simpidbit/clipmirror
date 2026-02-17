@@ -14,7 +14,7 @@ class MessageFromClient:
         self.paste = paste
 
     def make_msg_to_client(self) -> bytes:
-        return int(len(self.paste)).to_bytes(4) + self.paste.encode('utf-8')
+        return int(len(self.paste)).to_bytes(4, 'big') + self.paste.encode('utf-8')
 
 
 class MessageParser:
@@ -27,9 +27,9 @@ class MessageParser:
         self.raw_length += len(msg)
 
         try:
-            hostid_length = int.from_bytes(self.raw[:2])
+            hostid_length = int.from_bytes(self.raw[:2], 'big')
             hostid = self.raw[2 : 2 + hostid_length].decode('utf-8')
-            paste_length = int.from_bytes(self.raw[2 + hostid_length : 2 + hostid_length + 4])
+            paste_length = int.from_bytes(self.raw[2 + hostid_length : 2 + hostid_length + 4], 'big')
             paste = self.raw[2 + hostid_length + 4:].decode('utf-8')
 
             complete_msg_length = 2 + hostid_length + 4 + paste_length

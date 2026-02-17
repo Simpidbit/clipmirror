@@ -26,9 +26,9 @@ class ClipboardMonitor:
     # 格式:
     # | ID长度(2字节) | ID | paste长度(4字节) | paste
     def make_msg(self, identity:str) -> bytes:
-        msg = int(len(identity)).to_bytes(2) + \
+        msg = int(len(identity)).to_bytes(2, 'big') + \
               identity.encode('utf-8') + \
-              int(len(self.current_paste)).to_bytes(4) + \
+              int(len(self.current_paste)).to_bytes(4, 'big') + \
               self.current_paste.encode('utf-8')
         return msg
 
@@ -55,7 +55,7 @@ class MessageMonitor:
         self.raw += raw
         self.raw_length += len(raw)
         if self.raw_length >= 4:
-            paste_length = int.from_bytes(self.raw[:4])
+            paste_length = int.from_bytes(self.raw[:4], 'big')
         else:
             return False
         
