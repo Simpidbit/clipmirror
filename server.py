@@ -61,7 +61,8 @@ class MessagePeeker:
             if self.inputs[ri] is self.server_socket:
                 # 新的客户端连接
                 conn, addr = self.server_socket.accept()
-                conn.setblocking(False)
+                print(f'New client: {addr}')
+                #conn.setblocking(False)
                 self.inputs.append(conn)
                 self.parsers.append(MessageParser())
             else:
