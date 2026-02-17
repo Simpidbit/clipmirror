@@ -15,6 +15,7 @@ class ClipboardMonitor:
         pass
 
     def check_update(self):
+        print(f'current_paste: {self.current_paste}')
         if self.current_paste == str():
             self.current_paste = pyperclip.paste()
             return False
