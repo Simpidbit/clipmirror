@@ -3,8 +3,8 @@ import time
 import socket
 import sys
 
-IP = '127.0.0.1'
-PORT = 8080
+IP = sys.argv[1]
+PORT = int(sys.argv[2])
 
 
 class ClipboardMonitor:

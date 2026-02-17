@@ -1,8 +1,9 @@
 import socket
 import select
 import threading
+import sys
 
-PORT = 8080
+PORT = int(sys.argv[1])
 
 def sendall(s:socket.socket, msg:bytes) -> None:
     s.sendall(msg)
