@@ -56,13 +56,12 @@ class MessagePeeker:
     def peek_message(self) -> list:
         loaded_msgs = list()
         rs, _, es = select.select(self.inputs, [], self.inputs)
+        pop_idx = list()
         for ri in range(len(self.inputs)):
             if not (self.inputs[ri] in rs): continue
             if self.inputs[ri] is self.server_socket:
                 # 新的客户端连接
                 conn, addr = self.server_socket.accept()
-                print(f'New client: {addr}')
-                #conn.setblocking(False)
                 self.inputs.append(conn)
                 self.parsers.append(MessageParser())
             else:
@@ -70,16 +69,18 @@ class MessagePeeker:
                 try:
                     data = self.inputs[ri].recv(4096)
                     if data:
-                        msg_from_client = self.parsers[ri].load(self.inputs[ri].recv(4096))
+                        msg_from_client = self.parsers[ri].load(data)
                         if msg_from_client is not None:
                             loaded_msgs.append(msg_from_client)
                     else:
-                        raise ConnectionResetError
+                        pop_idx.append(ri)
                 except ConnectionResetError:
                     # 客户端断开
-                    self.inputs[ri].close()
-                    self.inputs.pop(ri)
-                    self.parsers.pop(ri)
+                    pop_idx.append(ri)
+        for ri in pop_idx:
+            self.inputs[ri].close()
+            self.inputs.pop(ri)
+            self.parsers.pop(ri)
 
         return loaded_msgs
 
@@ -105,4 +106,9 @@ class App:
 
 if __name__ == '__main__':
     app = App()
-    app.start_loop()
+    try:
+        app.start_loop()
+    except KeyboardInterrupt:
+        for s in app.msg_peeker.inputs:
+            s.close()
+        print('Bye~')

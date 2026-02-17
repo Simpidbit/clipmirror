@@ -15,7 +15,6 @@ class ClipboardMonitor:
         pass
 
     def check_update(self):
-        print(f'current_paste: {self.current_paste}')
         if self.current_paste == str():
             self.current_paste = pyperclip.paste()
             return False
@@ -85,7 +84,7 @@ class MessageMonitor:
             sys.exit(3)
 
     def send_msg(self, msg:bytes) -> None:
-        self.socket.send(msg)
+        self.socket.sendall(msg)
 
     def get_id(self) -> str:
         sockname = self.socket.getsockname()
@@ -101,12 +100,10 @@ class EventMonitor:
         try:
             while True:
                 if self.clipboard_monitor.check_update():
-                    print(f'Send Message')
                     self.message_monitor.send_msg(
                         self.clipboard_monitor.make_msg(self.message_monitor.get_id())
                     )
                 elif self.message_monitor.check_msg():
-                    print(f'Copy')
                     pyperclip.copy(self.message_monitor.get_paste())
                 time.sleep(0.1)
         except KeyboardInterrupt:
