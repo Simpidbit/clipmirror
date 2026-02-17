@@ -112,5 +112,5 @@ class EventMonitor:
             self.clipboard_monitor.destruct()
 
 if __name__ == '__main__':
-    monitor = ClipboardMonitor()
-    monitor.check_update()
+    event_monitor = EventMonitor()
+    event_monitor.start_loop()
