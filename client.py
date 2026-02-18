@@ -2,6 +2,7 @@ import pyperclip
 import time
 import socket
 import sys
+import logging
 
 IP = sys.argv[1]
 PORT = int(sys.argv[2])
@@ -70,6 +71,7 @@ class MessageMonitor:
     def check_msg(self) -> bool:
         try:
             data = self.socket.recv(4096)
+            logging.info('Receive data: {data} with length {len(data)}.')
 
             if not data:
                 # Connection was closed
@@ -84,7 +86,9 @@ class MessageMonitor:
             sys.exit(3)
 
     def send_msg(self, msg:bytes) -> None:
+        logging.info('Send msg: {msg}')
         self.socket.sendall(msg)
+        logging.info('Send OK.')
 
     def get_id(self) -> str:
         sockname = self.socket.getsockname()
@@ -100,10 +104,12 @@ class EventMonitor:
         try:
             while True:
                 if self.clipboard_monitor.check_update():
+                    logging.info(f'Clipboard update: {self.clipboard_monitor.current_paste}')
                     self.message_monitor.send_msg(
                         self.clipboard_monitor.make_msg(self.message_monitor.get_id())
                     )
                 elif self.message_monitor.check_msg():
+                    logging.info(f'New message from server: {self.message_monitor.get_paste()}')
                     pyperclip.copy(self.message_monitor.get_paste())
                 time.sleep(0.1)
         except KeyboardInterrupt:
@@ -111,5 +117,12 @@ class EventMonitor:
             self.clipboard_monitor.destruct()
 
 if __name__ == '__main__':
+    logging.basicConfig(
+        level = logging.INFO,
+        format = '[%(asctime)s %(levelname)s] %(message)s',
+        filename = f'log_client.txt',
+        filemode = 'a'
+    )
+
     event_monitor = EventMonitor()
     event_monitor.start_loop()

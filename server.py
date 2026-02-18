@@ -2,11 +2,16 @@ import socket
 import select
 import threading
 import sys
+import logging
+import time
+from datetime import datetime
 
 PORT = int(sys.argv[1])
 
 def sendall(s:socket.socket, msg:bytes) -> None:
+    logging.info('Send {msg} to {s.getpeername()}...')
     s.sendall(msg)
+    logging.info('Send OK.')
 
 class MessageFromClient:
     def __init__(self, hostid:str, paste:str):
@@ -61,21 +66,27 @@ class MessagePeeker:
             if not (self.inputs[ri] in rs): continue
             if self.inputs[ri] is self.server_socket:
                 # 新的客户端连接
+                logging.info('New client!')
                 conn, addr = self.server_socket.accept()
+                logging.info('Accept client: {addr}')
                 self.inputs.append(conn)
                 self.parsers.append(MessageParser())
             else:
                 # 已有客户端发来的消息
+                logging.info('New msg from client!')
                 try:
                     data = self.inputs[ri].recv(4096)
+                    logging.info(f'Receive data: {data} with length {len(data)}')
                     if data:
                         msg_from_client = self.parsers[ri].load(data)
                         if msg_from_client is not None:
                             loaded_msgs.append(msg_from_client)
                     else:
+                        logging.info(f'Client closed: {self.inputs[ri].getpeername()}')
                         pop_idx.append(ri)
                 except ConnectionResetError:
                     # 客户端断开
+                    logging.info(f'Client ConnectionResetError: {self.inputs[ri].getpeername()}')
                     pop_idx.append(ri)
         for ri in pop_idx:
             self.inputs[ri].close()
@@ -85,6 +96,7 @@ class MessagePeeker:
         return loaded_msgs
 
     def broadcast(self, msg:MessageFromClient) -> None:
+        logging.info(f'broadcast: {msg.make_msg_to_client()}')
         for cs in self.inputs[1:]:
             peername = cs.getpeername()
             peerid = f'{peername[0]}:{peername[1]}'
@@ -98,17 +110,27 @@ class App:
 
     def start_loop(self) -> None:
         while True:
+            logging.info('Wating for loaded_msgs.')
             loaded_msgs = self.msg_peeker.peek_message()
+            logging.info(f'len(loaded_msgs) = {len(loaded_msgs)}.')
             if len(loaded_msgs) == 0:
                 continue
             self.msg_peeker.broadcast(loaded_msgs[-1])
 
 
 if __name__ == '__main__':
+    logging.basicConfig(
+        level = logging.INFO,
+        format = '[%(asctime)s %(levelname)s] %(message)s',
+        filename = f'log.txt',
+        filemode = 'a'
+    )
+
     app = App()
     try:
         app.start_loop()
     except KeyboardInterrupt:
+        logging.info('KeyboardInterrupt.')
         for s in app.msg_peeker.inputs:
             s.close()
-        print('Bye~')
+    logging.info('Exit.')
