@@ -9,7 +9,7 @@ from datetime import datetime
 PORT = int(sys.argv[1])
 
 def sendall(s:socket.socket, msg:bytes) -> None:
-    logging.info('Send {msg} to {s.getpeername()}...')
+    logging.info(f'Send {msg} to {s.getpeername()}...')
     s.sendall(msg)
     logging.info('Send OK.')
 
@@ -68,7 +68,7 @@ class MessagePeeker:
                 # 新的客户端连接
                 logging.info('New client!')
                 conn, addr = self.server_socket.accept()
-                logging.info('Accept client: {addr}')
+                logging.info(f'Accept client: {addr}')
                 self.inputs.append(conn)
                 self.parsers.append(MessageParser())
             else:
@@ -122,8 +122,8 @@ if __name__ == '__main__':
     logging.basicConfig(
         level = logging.INFO,
         format = '[%(asctime)s %(levelname)s] %(message)s',
-        filename = f'log.txt',
-        filemode = 'a'
+        filename = f'log_server.txt',
+        filemode = 'w'
     )
 
     app = App()

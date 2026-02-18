@@ -71,7 +71,7 @@ class MessageMonitor:
     def check_msg(self) -> bool:
         try:
             data = self.socket.recv(4096)
-            logging.info('Receive data: {data} with length {len(data)}.')
+            logging.info(f'Receive data: {data} with length {len(data)}.')
 
             if not data:
                 # Connection was closed
@@ -86,7 +86,7 @@ class MessageMonitor:
             sys.exit(3)
 
     def send_msg(self, msg:bytes) -> None:
-        logging.info('Send msg: {msg}')
+        logging.info(f'Send msg: {msg}')
         self.socket.sendall(msg)
         logging.info('Send OK.')
 
@@ -121,7 +121,7 @@ if __name__ == '__main__':
         level = logging.INFO,
         format = '[%(asctime)s %(levelname)s] %(message)s',
         filename = f'log_client.txt',
-        filemode = 'a'
+        filemode = 'w'
     )
 
     event_monitor = EventMonitor()
