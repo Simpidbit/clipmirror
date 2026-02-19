@@ -110,7 +110,7 @@ class App:
 
     def start_loop(self) -> None:
         while True:
-            logging.info('Wating for loaded_msgs.')
+            logging.info('Waiting for loaded_msgs.')
             loaded_msgs = self.msg_peeker.peek_message()
             logging.info(f'len(loaded_msgs) = {len(loaded_msgs)}.')
             if len(loaded_msgs) == 0:

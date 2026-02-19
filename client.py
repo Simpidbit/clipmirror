@@ -79,7 +79,11 @@ class MessageMonitor:
                 sys.exit(1)
 
             return self.load_raw(data)
-        except BlockingIOError:
+        except (BlockingIOError, TimeoutError):
+            # On macOS, non-blocking socket.recv() may raise TimeoutError (errno 60)
+            # instead of BlockingIOError when no data is available.
+            # On Linux, BlockingIOError (errno 11) is typically raised.
+            # This difference is due to platform-specific socket implementations.
             return False
         except ConnectionResetError:
             self.socket.close()
