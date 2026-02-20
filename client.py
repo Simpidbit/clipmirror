@@ -93,21 +93,28 @@ class MessageMonitor:
                 self.reconnect()
                 return False
 
+            logging.info('check_msg return from load_raw')
             return self.load_raw(data)
         except (BlockingIOError, TimeoutError):
             # On macOS, non-blocking socket.recv() may raise TimeoutError (errno 60)
             # instead of BlockingIOError when no data is available.
             # On Linux, BlockingIOError (errno 11) is typically raised.
             # This difference is due to platform-specific socket implementations.
+            logging.info('check_msg return from BlockingIOError or TimeoutError')
             return False
         except ConnectionResetError:
             self.reconnect()
+            logging.info('check_msg return from ConnectionResetError')
             return False
         except OSError as e:
             # Handle socket errors like EADDRNOTAVAIL (errno 49) after system wake
             # or other connection issues after sleep
             logging.warning(f'Socket error: {e}, reconnecting...')
             self.reconnect()
+            logging.info('check_msg return from OSError')
+            return False
+        except:
+            logging.info('Unknown exception')
             return False
 
     def send_msg(self, msg:bytes) -> None:
