@@ -38,7 +38,7 @@ class MessageParser:
             if paste_length == 0:
                 # heart beat
                 self.raw = self.raw[4:]
-                self.raw_legnth -= 4
+                self.raw_length -= 4
                 return None
 
             complete_msg_length = 4 + paste_length
