@@ -19,7 +19,8 @@ class MessageFromClient:
         self.paste = paste
 
     def make_msg_to_client(self) -> bytes:
-        return int(len(self.paste)).to_bytes(4, 'big') + self.paste.encode('utf-8')
+        return int(len(self.paste.encode('utf-8'))).to_bytes(4, 'big') + \
+               self.paste.encode('utf-8')
 
 
 class MessageParser:
