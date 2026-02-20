@@ -28,7 +28,7 @@ class ClipboardMonitor:
     # 格式:
     # | paste长度(4字节) | paste |
     def make_msg(self) -> bytes:
-        msg = int(len(self.current_paste)).to_bytes(4, 'big') + \
+        msg = int(len(self.current_paste.encode('utf-8'))).to_bytes(4, 'big') + \
               self.current_paste.encode('utf-8')
         return msg
 
