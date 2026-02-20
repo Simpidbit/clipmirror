@@ -7,7 +7,6 @@ import logging
 IP = sys.argv[1]
 PORT = int(sys.argv[2])
 
-
 class ClipboardMonitor:
     def __init__(self) -> None:
         self.current_paste = str()
@@ -15,7 +14,7 @@ class ClipboardMonitor:
     def destruct(self) -> None:
         pass
 
-    def check_update(self):
+    def check_update(self) -> bool:
         if self.current_paste == str():
             self.current_paste = pyperclip.paste()
             return False
@@ -24,12 +23,12 @@ class ClipboardMonitor:
             if new_paste != self.current_paste:
                 self.current_paste = new_paste
                 return True
+        return False
+
     # 格式:
-    # | ID长度(2字节) | ID | paste长度(4字节) | paste
-    def make_msg(self, identity:str) -> bytes:
-        msg = int(len(identity)).to_bytes(2, 'big') + \
-              identity.encode('utf-8') + \
-              int(len(self.current_paste)).to_bytes(4, 'big') + \
+    # | paste长度(4字节) | paste |
+    def make_msg(self) -> bytes:
+        msg = int(len(self.current_paste)).to_bytes(4, 'big') + \
               self.current_paste.encode('utf-8')
         return msg
 
@@ -68,6 +67,22 @@ class MessageMonitor:
         else:
             return False
 
+    def reconnect(self) -> None:
+        self.socket.close()
+        while True:
+            time.sleep(0.5)
+            self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            try:
+                self.socket.connect((IP, PORT))
+                self.socket.setblocking(False)
+                logging.info(f'Reconnected to {IP}:{PORT}')
+                break
+            except KeyboardInterrupt:
+                logging.info('Exit by KeyboardInterrupt.')
+                sys.exit(0)
+            except:
+                logging.info(f'Reconnect to {IP}:{PORT} failed, retry...')
+
     def check_msg(self) -> bool:
         try:
             data = self.socket.recv(4096)
@@ -75,8 +90,8 @@ class MessageMonitor:
 
             if not data:
                 # Connection was closed
-                self.socket.close()
-                sys.exit(1)
+                self.reconnect()
+                return False
 
             return self.load_raw(data)
         except (BlockingIOError, TimeoutError):
@@ -86,18 +101,23 @@ class MessageMonitor:
             # This difference is due to platform-specific socket implementations.
             return False
         except ConnectionResetError:
-            self.socket.close()
-            sys.exit(3)
+            self.reconnect()
+            return False
+        except OSError as e:
+            # Handle socket errors like EADDRNOTAVAIL (errno 49) after system wake
+            # or other connection issues after sleep
+            logging.warning(f'Socket error: {e}, reconnecting...')
+            self.reconnect()
+            return False
 
     def send_msg(self, msg:bytes) -> None:
         logging.info(f'Send msg: {msg}')
-        self.socket.sendall(msg)
-        logging.info('Send OK.')
-
-    def get_id(self) -> str:
-        sockname = self.socket.getsockname()
-        return f'{sockname[0]}:{sockname[1]}'
-
+        try:
+            self.socket.sendall(msg)
+            logging.info('Send OK.')
+        except:
+            self.reconnect()
+            logging.info('Send canceled but reconnected.')
 
 class EventMonitor:
     def __init__(self) -> None:
@@ -110,9 +130,9 @@ class EventMonitor:
                 if self.clipboard_monitor.check_update():
                     logging.info(f'Clipboard update: {self.clipboard_monitor.current_paste}')
                     self.message_monitor.send_msg(
-                        self.clipboard_monitor.make_msg(self.message_monitor.get_id())
+                        self.clipboard_monitor.make_msg()
                     )
-                elif self.message_monitor.check_msg():
+                if self.message_monitor.check_msg():
                     logging.info(f'New message from server: {self.message_monitor.get_paste()}')
                     pyperclip.copy(self.message_monitor.get_paste())
                 time.sleep(0.1)

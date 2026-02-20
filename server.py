@@ -3,19 +3,19 @@ import select
 import threading
 import sys
 import logging
-import time
-from datetime import datetime
 
 PORT = int(sys.argv[1])
 
 def sendall(s:socket.socket, msg:bytes) -> None:
     logging.info(f'Send {msg} to {s.getpeername()}...')
-    s.sendall(msg)
-    logging.info('Send OK.')
+    try:
+        s.sendall(msg)
+        logging.info('Send OK.')
+    except:
+        logging.info(f'Failed to send {msg} to {s.getpeername()}!')
 
 class MessageFromClient:
-    def __init__(self, hostid:str, paste:str):
-        self.hostid = hostid
+    def __init__(self, paste:str):
         self.paste = paste
 
     def make_msg_to_client(self) -> bytes:
@@ -32,18 +32,16 @@ class MessageParser:
         self.raw_length += len(msg)
 
         try:
-            hostid_length = int.from_bytes(self.raw[:2], 'big')
-            hostid = self.raw[2 : 2 + hostid_length].decode('utf-8')
-            paste_length = int.from_bytes(self.raw[2 + hostid_length : 2 + hostid_length + 4], 'big')
-            paste = self.raw[2 + hostid_length + 4:].decode('utf-8')
+            paste_length = int.from_bytes(self.raw[0:4], 'big')
 
-            complete_msg_length = 2 + hostid_length + 4 + paste_length
+            complete_msg_length = 4 + paste_length
             if len(self.raw) < complete_msg_length:
                 raise IndexError
             else:
+                paste = self.raw[4 : 4 + paste_length].decode('utf-8')
                 self.raw = self.raw[complete_msg_length:]
                 self.raw_length -= complete_msg_length
-                return MessageFromClient(hostid, paste)
+                return MessageFromClient(paste)
         except IndexError:
             return None
 
@@ -63,7 +61,10 @@ class MessagePeeker:
         rs, _, es = select.select(self.inputs, [], self.inputs)
         pop_idx = list()
         for ri in range(len(self.inputs)):
-            if not (self.inputs[ri] in rs): continue
+            if self.inputs[ri] not in rs: continue
+            if self.inputs[ri] in es:
+                pop_idx.append(ri)
+                continue
             if self.inputs[ri] is self.server_socket:
                 # 新的客户端连接
                 logging.info('New client!')
@@ -88,7 +89,8 @@ class MessagePeeker:
                     # 客户端断开
                     logging.info(f'Client ConnectionResetError: {self.inputs[ri].getpeername()}')
                     pop_idx.append(ri)
-        for ri in pop_idx:
+        for ri in sorted(pop_idx, reverse = True):
+            logging.info(f'Close: {self.inputs[ri].getpeername()}')
             self.inputs[ri].close()
             self.inputs.pop(ri)
             self.parsers.pop(ri)
@@ -98,10 +100,12 @@ class MessagePeeker:
     def broadcast(self, msg:MessageFromClient) -> None:
         logging.info(f'broadcast: {msg.make_msg_to_client()}')
         for cs in self.inputs[1:]:
-            peername = cs.getpeername()
-            peerid = f'{peername[0]}:{peername[1]}'
-            if peerid != msg.hostid:
-                threading.Thread(target = sendall, args = (cs, msg.make_msg_to_client())).start()
+            try:
+                peername = cs.getpeername()
+                logging.info(f'broadcast to: {peername[0]}:{peername[1]}')
+                threading.Thread(target = sendall, args = (cs, msg.make_msg_to_client()), daemon = True).start()
+            except:
+                logging.info('broadcast failed, pass.')
 
 
 class App:
