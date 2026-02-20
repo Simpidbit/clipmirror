@@ -132,6 +132,7 @@ class EventMonitor:
         self.message_monitor = MessageMonitor()
 
     def start_loop(self):
+        idx = 0
         try:
             while True:
                 if self.clipboard_monitor.check_update():
@@ -142,7 +143,12 @@ class EventMonitor:
                 if self.message_monitor.check_msg():
                     logging.info(f'New message from server: {self.message_monitor.get_paste()}')
                     pyperclip.copy(self.message_monitor.get_paste())
+                if idx > 300:
+                    # heart beat
+                    idx = 0
+                    self.message_monitor.send_msg(b'\x00\x00\x00\x00')
                 time.sleep(0.1)
+                idx += 1
         except KeyboardInterrupt:
             self.message_monitor.destruct()
             self.clipboard_monitor.destruct()
