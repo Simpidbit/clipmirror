@@ -15,7 +15,7 @@ def sendall(s:socket.socket, msg:bytes) -> None:
         logging.info(f'Failed to send {msg} to {s.getpeername()}!')
 
 class MessageFromClient:
-    def __init__(self, paste:str):
+    def __init__(self, paste:str) -> None:
         self.paste = paste
 
     def make_msg_to_client(self) -> bytes:

@@ -127,7 +127,7 @@ class EventMonitor:
         self.clipboard_monitor = ClipboardMonitor()
         self.message_monitor = MessageMonitor()
 
-    def start_loop(self):
+    def start_loop(self) -> None:
         idx = 0
         try:
             while True:
