@@ -3,9 +3,11 @@ import time
 import socket
 import sys
 import logging
+import ipaddress
 
-IP = sys.argv[1]
+HOST = sys.argv[1]
 PORT = int(sys.argv[2])
+IP_VER = ipaddress.ip_address(HOST).version
 
 class ClipboardMonitor:
     def __init__(self) -> None:
@@ -40,9 +42,12 @@ class MessageMonitor:
         self.paste = str()
         self.raw = bytes()
         self.raw_length = 0
-
-        self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.socket.connect((IP, PORT))
+        
+        if IP_VER == 4:
+            self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        elif IP_VER == 6:
+            self.socket = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
+        self.socket.connect((HOST, PORT))
         self.socket.setblocking(False)
 
     def destruct(self) -> None:
@@ -71,17 +76,20 @@ class MessageMonitor:
         self.socket.close()
         while True:
             time.sleep(0.5)
-            self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            if IP_VER == 4:
+                self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            elif IP_VER == 6:
+                self.socket = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
             try:
-                self.socket.connect((IP, PORT))
+                self.socket.connect((HOST, PORT))
                 self.socket.setblocking(False)
-                logging.info(f'Reconnected to {IP}:{PORT}')
+                logging.info(f'Reconnected to {HOST}:{PORT}')
                 break
             except KeyboardInterrupt:
                 logging.info('Exit by KeyboardInterrupt.')
                 sys.exit(0)
             except:
-                logging.info(f'Reconnect to {IP}:{PORT} failed, retry...')
+                logging.info(f'Reconnect to {HOST}:{PORT} failed, retry...')
 
     def check_msg(self) -> bool:
         try:

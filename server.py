@@ -3,8 +3,10 @@ import select
 import threading
 import sys
 import logging
+import ipaddress
 
-PORT = int(sys.argv[1])
+HOST = sys.argv[1]
+PORT = int(sys.argv[2])
 
 def sendall(s:socket.socket, msg:bytes) -> None:
     logging.info(f'Send {msg} to {s.getpeername()}...')
@@ -54,10 +56,14 @@ class MessageParser:
 
 class MessagePeeker:
     def __init__(self) -> None:
-        self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        addr = ipaddress.ip_address(HOST)
+        if addr.version == 4:
+            self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        elif addr.version == 6:
+            self.server_socket = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
         self.server_socket.setblocking(False)
         self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        self.server_socket.bind(('0.0.0.0', PORT))
+        self.server_socket.bind((HOST, PORT))
         self.server_socket.listen(32)
         self.inputs = [self.server_socket]
         self.parsers = [MessageParser()]
