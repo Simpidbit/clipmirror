@@ -5,7 +5,7 @@ import sys
 import logging
 import ipaddress
 
-HOST = sys.argv[1]
+HOST = set([info[4][0] for info in socket.getaddrinfo(sys.argv[1], None)]).pop()
 PORT = int(sys.argv[2])
 IP_VER = ipaddress.ip_address(HOST).version
 
