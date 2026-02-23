@@ -210,10 +210,12 @@ class ClipboardContent:
         )
 
         targets = result.stdout
-        has_image = "image/png" in targets or "image/bmp" in targets
 
         # Check for files (text/uri-list) - check this first, before images
         has_files = "text/uri-list" in targets
+
+        # Check for images (any image/ MIME type)
+        has_image = any(target.startswith("image/") for target in targets.split())
 
         # Check for files first (takes priority over images)
         if has_files:
@@ -244,18 +246,36 @@ class ClipboardContent:
                         self._raw = f.read()
                     return
 
-        # Only read as image if we actually have image data available
+        # Read image data using the correct MIME type
         if has_image:
-            result = subprocess.run(
-                ["xclip", "-selection", "clipboard", "-t", "image/png", "-o"],
-                capture_output=True,
-                timeout=10,
-            )
-            if result.returncode == 0 and result.stdout:
-                # Verify it's actually a PNG (starts with PNG signature)
-                if result.stdout.startswith(b"\x89PNG"):
+            # Find the actual image MIME type in targets
+            image_mime = next((t for t in targets.split() if t.startswith("image/")), None)
+
+            if image_mime:
+                result = subprocess.run(
+                    ["xclip", "-selection", "clipboard", "-t", image_mime, "-o"],
+                    capture_output=True,
+                    timeout=10,
+                )
+                if result.returncode == 0 and result.stdout:
+                    # Determine suffix from MIME type
+                    if "jpeg" in image_mime:
+                        self._suffix = "jpg"
+                    elif "png" in image_mime:
+                        self._suffix = "png"
+                    elif "bmp" in image_mime:
+                        self._suffix = "bmp"
+                    elif "gif" in image_mime:
+                        self._suffix = "gif"
+                    elif "webp" in image_mime:
+                        self._suffix = "webp"
+                    elif "tiff" in image_mime:
+                        self._suffix = "tiff"
+                    elif "svg" in image_mime:
+                        self._suffix = "svg"
+                    else:
+                        self._suffix = "bin"
                     self._raw = result.stdout
-                    self._suffix = "png"
                     return
 
         # Fall back to text
