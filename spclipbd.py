@@ -495,6 +495,7 @@ def _copy_linux(content_type: str, data: bytes) -> TempFile:
     if content_type in image_mime_types:
         # For images, use the correct MIME type
         mime_type = image_mime_types[content_type]
+
         subprocess.run(
             ["xclip", "-selection", "clipboard", "-t", mime_type],
             input=data,
