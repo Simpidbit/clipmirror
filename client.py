@@ -21,7 +21,10 @@ class ClipboardMonitor:
             self.current_paste = pyperclip.paste()
             return False
         else:
-            new_paste = pyperclip.paste()
+            try:
+                new_paste = pyperclip.paste()
+            except UnicodeDecodeError:
+                new_paste = self.current_paste
             if new_paste != self.current_paste:
                 self.current_paste = new_paste
                 return True
