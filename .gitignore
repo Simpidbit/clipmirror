@@ -1,3 +1,4 @@
 nohup.out
 log_client.txt
 log_server.txt
+__pycache__
