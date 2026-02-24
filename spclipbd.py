@@ -13,7 +13,8 @@ from typing import Optional
 from urllib.parse import quote
 
 # Directory for temporary clipboard files
-_TEMP_DIR = os.path.join(tempfile.gettempdir(), "spclipbd_files")
+# Use /tmp/spclipbd_files for shorter paths (important for macOS alias records)
+_TEMP_DIR = "/tmp/spclipbd_files"
 
 
 class TempFile:
@@ -159,7 +160,99 @@ class ClipboardContent:
 
     def _read_macos(self) -> None:
         """Read clipboard content using AppleScript on macOS."""
-        # Check for image
+        # First, try using NSPasteboard to check for file list types
+        try:
+            from AppKit import NSPasteboard
+            import plistlib
+        except ImportError:
+            pasteboard = None
+        else:
+            pasteboard = NSPasteboard.generalPasteboard()
+
+            # Check for NSFilenamesPboardType (file list)
+            file_list_data = pasteboard.dataForType_('NSFilenamesPboardType')
+            if file_list_data:
+                try:
+                    file_list = plistlib.loads(file_list_data.bytes().tobytes())
+                    if file_list and isinstance(file_list, list) and file_list:
+                        filepath = file_list[0]
+                        if os.path.isfile(filepath):
+                            # Read file content
+                            _, ext = os.path.splitext(filepath)
+                            if ext:
+                                self._suffix = ext[1:].lower()  # Remove the dot
+                            else:
+                                self._suffix = ""
+                            with open(filepath, "rb") as f:
+                                self._raw = f.read()
+                            return
+                except Exception:
+                    pass
+
+            # Check for public.file-url
+            file_url_data = pasteboard.dataForType_('public.file-url')
+            if file_url_data:
+                try:
+                    file_url_str = file_url_data.bytes().tobytes().decode('utf-8')
+                    if file_url_str.startswith('file://'):
+                        filepath = file_url_str[7:]  # Remove "file://"
+                        if os.path.isfile(filepath):
+                            # Read file content
+                            _, ext = os.path.splitext(filepath)
+                            if ext:
+                                self._suffix = ext[1:].lower()
+                            else:
+                                self._suffix = ""
+                            with open(filepath, "rb") as f:
+                                self._raw = f.read()
+                            return
+                except Exception:
+                    pass
+
+        # Check for file (alias) - fallback method
+        text_script = 'tell application "System Events" to get the clipboard'
+        result = subprocess.run(
+            ["osascript", "-e", text_script],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        clipboard_content = result.stdout.strip()
+
+        # Check if clipboard contains a file reference (starts with "alias ")
+        if clipboard_content.startswith("alias "):
+            # Extract the alias path (remove "alias " prefix)
+            alias_path = clipboard_content[6:]  # Remove "alias "
+            # Convert alias path to POSIX path
+            script = f'POSIX path of alias "{alias_path}"'
+            result = subprocess.run(
+                ["osascript", "-e", script],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            posix_path = result.stdout.strip()
+
+            # Fix for "Macintosh HD:" volume name being converted to "/HD/" instead of "/"
+            # This happens when POSIX path of alias "Macintosh HD:..." returns "/HD/private/..."
+            if posix_path.startswith("/HD/") or posix_path.startswith("/HD:"):
+                # Replace "/HD/" with "/"
+                posix_path = "/" + posix_path[len("/HD/"):]
+
+            if os.path.isfile(posix_path):
+                # Read file content
+                _, ext = os.path.splitext(posix_path)
+                if ext:
+                    self._suffix = ext[1:].lower()  # Remove the dot
+                else:
+                    self._suffix = ""
+                with open(posix_path, "rb") as f:
+                    self._raw = f.read()
+                return
+
+        # Check for image (PNGf)
+        # Note: This requires pngpaste to be installed via Homebrew
+        # Without pngpaste, we can only read images that were copied as file references
         image_script = '''
             tell application "System Events"
                 try
@@ -178,26 +271,47 @@ class ClipboardContent:
         )
 
         if "HAS_IMAGE" in result.stdout:
-            # Use pngpaste to get image data
-            result = subprocess.run(
-                ["pngpaste", "-"],
-                capture_output=True,
-                timeout=10,
-            )
-            if result.returncode == 0:
-                self._raw = result.stdout
-                self._suffix = "png"
-                return
+            # Try to use PyObjC to read image data
+            try:
+                from AppKit import NSPasteboard, NSData
+            except ImportError:
+                # Fallback to pngpaste if PyObjC is not available
+                result = subprocess.run(
+                    ["pngpaste", "-"],
+                    capture_output=True,
+                    timeout=10,
+                )
+                if result.returncode == 0 and result.stdout:
+                    self._raw = result.stdout
+                    self._suffix = "png"
+                    return
 
-        # Check for text
-        text_script = 'tell application "System Events" to get the clipboard'
-        result = subprocess.run(
-            ["osascript", "-e", text_script],
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-        self._raw = result.stdout.encode("utf-8")
+            # Use NSPasteboard to read image data
+            pasteboard = NSPasteboard.generalPasteboard()
+            available_types = pasteboard.types()
+
+            # Map UTI to file extensions
+            uti_to_ext = {
+                "public.png": "png",
+                "public.jpeg": "jpg",
+                "com.microsoft.bmp": "bmp",
+                "com.compuserve.gif": "gif",
+                "public.tiff": "tiff",
+                "org.webmproject.webp": "webp",
+                "public.svg-image": "svg",
+            }
+
+            # Try each type in order
+            for uti_type, ext in uti_to_ext.items():
+                if uti_type in available_types:
+                    data = pasteboard.dataForType_(uti_type)
+                    if data and data.bytes():
+                        self._raw = data.bytes().tobytes()
+                        self._suffix = ext
+                        return
+
+        # Fall back to text (clipboard already contains text)
+        self._raw = clipboard_content.encode("utf-8")
 
     def _read_linux(self) -> None:
         """Read clipboard content using xclip on Linux."""
@@ -417,11 +531,13 @@ def _copy_windows(content_type: str, data: bytes) -> TempFile:
 
 
 def _copy_macos(content_type: str, data: bytes) -> TempFile:
-    """Copy content to clipboard using AppleScript on macOS."""
+    """Copy content to clipboard using AppleScript and NSPasteboard on macOS."""
     if content_type == "_plaintext":
-        # For plain text
+        # For plain text, escape quotes and backslashes properly
         text = data.decode("utf-8")
-        script = f'set the clipboard to "{text}"'
+        # Escape backslashes first, then quotes
+        escaped_text = text.replace("\\", "\\\\").replace('"', '\\"')
+        script = f'set the clipboard to "{escaped_text}"'
         subprocess.run(
             ["osascript", "-e", script],
             capture_output=True,
@@ -433,49 +549,119 @@ def _copy_macos(content_type: str, data: bytes) -> TempFile:
     # Check if it's an image type
     image_types = {"png", "jpg", "jpeg", "bmp", "gif", "webp", "tiff", "svg"}
     if content_type in image_types:
-        # For images, use osascript
-        import base64
+        # For images, use PyObjC NSPasteboard API
+        try:
+            from AppKit import NSPasteboard, NSData
+        except ImportError:
+            # Fallback to file method if PyObjC is not available
+            return _copy_macos_fallback(content_type, data)
 
-        b64_data = base64.b64encode(data).decode("ascii")
-        script = f'''
-            set theData to do shell script "echo '{b64_data}' | base64 -D"
-            set theClipboard to (theData)
-            tell application "System Events" to set the clipboard to theClipboard
-        '''
-        subprocess.run(
-            ["osascript", "-e", script],
-            capture_output=True,
-            timeout=30,
-            check=True,
-        )
+        # Map image types to UTI (Uniform Type Identifier)
+        uti_map = {
+            "png": "public.png",
+            "jpg": "public.jpeg",
+            "jpeg": "public.jpeg",
+            "bmp": "com.microsoft.bmp",
+            "gif": "com.compuserve.gif",
+            "webp": "org.webmproject.webp",
+            "tiff": "public.tiff",
+            "svg": "public.svg-image",
+        }
+        uti = uti_map.get(content_type, "public.png")
+
+        # Create NSData from image data
+        ns_data = NSData.alloc().initWithBytes_length_(data, len(data))
+
+        # Get pasteboard and set data
+        pasteboard = NSPasteboard.generalPasteboard()
+        pasteboard.clearContents()
+
+        # Declare only the original format type
+        # This helps prevent macOS from auto-generating PNG format
+        pasteboard.declareTypes_owner_([uti], None)
+        pasteboard.setData_forType_(ns_data, uti)
+
+        # For JPEG, also declare additional types to ensure compatibility
+        # but don't set PNG data to prevent auto-conversion
+        if content_type in ("jpg", "jpeg"):
+            # Declare additional common image types but don't set their data
+            # This tells the system these types are available but empty
+            pass
+
         return TempFile(None)
     else:
-        # For files (txt, zip, etc.), create a file in temp directory
-        os.makedirs(_TEMP_DIR, exist_ok=True)
+        # For files (txt, zip, etc.), use NSPasteboard with NSURL
+        # This is the proper way to copy files to clipboard for Finder
+        try:
+            from AppKit import NSPasteboard, NSURL, NSArray
+            from Foundation import NSURLBookmarkCreationMinimalBookmark
+        except ImportError:
+            # Fallback to AppleScript if PyObjC is not available
+            return _copy_macos_fallback(content_type, data)
 
+        # Create a temporary file directly in /tmp for better Finder compatibility
         import hashlib
 
         hash_obj = hashlib.md5(data).hexdigest()
         ext = f".{content_type}" if content_type else ""
-        temp_file = os.path.join(_TEMP_DIR, f"{hash_obj}{ext}")
+        # Use /tmp directly instead of /tmp/spclipbd_files subdirectory
+        # Finder may have issues with subdirectories in /tmp
+        temp_file = f"/tmp/{hash_obj[:12]}{ext}"
 
         with open(temp_file, "wb") as f:
             f.write(data)
 
-        # Use AppleScript to copy file to clipboard
-        script = f'''
-            tell application "Finder"
-                set theFile to POSIX file "{temp_file}"
-                set the clipboard to (theFile as alias)
-            end tell
-        '''
-        subprocess.run(
-            ["osascript", "-e", script],
-            capture_output=True,
-            timeout=30,
-            check=True,
+        # Create NSURL from file path
+        file_url = NSURL.fileURLWithPath_(temp_file)
+
+        # Get pasteboard and set file URLs
+        pasteboard = NSPasteboard.generalPasteboard()
+        pasteboard.clearContents()
+
+        # Use writeObjects with NSURL array - this sets NSFilenamesPboardType and public.file-url
+        url_array = NSArray.arrayWithObject_(file_url)
+        pasteboard.writeObjects_(url_array)
+
+        # Also create and set alias record for Finder compatibility
+        # Finder uses com.apple.alias-record for file paste operations
+        bookmark_result = file_url.bookmarkDataWithOptions_includingResourceValuesForKeys_relativeToURL_error_(
+            NSURLBookmarkCreationMinimalBookmark, None, None, None
         )
+        bookmark_data, error = bookmark_result
+
+        if bookmark_data and error is None:
+            # Set the bookmark as alias record
+            pasteboard.setData_forType_(bookmark_data, 'com.apple.alias-record')
+
         return TempFile(temp_file)
+
+
+def _copy_macos_fallback(content_type: str, data: bytes) -> TempFile:
+    """Fallback method for copying files when PyObjC is not available."""
+    # Use /tmp directly for better Finder compatibility
+    import hashlib
+
+    hash_obj = hashlib.md5(data).hexdigest()
+    ext = f".{content_type}" if content_type else ""
+    temp_file = f"/tmp/spclipbd_{hash_obj[:8]}{ext}"
+
+    with open(temp_file, "wb") as f:
+        f.write(data)
+
+    # Use AppleScript to copy file to clipboard
+    script = f'''
+        tell application "Finder"
+            set theFile to POSIX file "{temp_file}"
+            set the clipboard to (theFile as alias)
+        end tell
+    '''
+    subprocess.run(
+        ["osascript", "-e", script],
+        capture_output=True,
+        timeout=30,
+        check=True,
+    )
+    return TempFile(temp_file)
 
 
 def _copy_linux(content_type: str, data: bytes) -> TempFile:
