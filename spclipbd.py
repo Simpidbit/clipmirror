@@ -210,12 +210,10 @@ class ClipboardContent:
         )
 
         targets = result.stdout
+        has_image = "image/png" in targets or "image/bmp" in targets or "image/jpeg" in targets
 
         # Check for files (text/uri-list) - check this first, before images
         has_files = "text/uri-list" in targets
-
-        # Check for images (any image/ MIME type)
-        has_image = any(target.startswith("image/") for target in targets.split())
 
         # Check for files first (takes priority over images)
         if has_files:
@@ -246,37 +244,49 @@ class ClipboardContent:
                         self._raw = f.read()
                     return
 
-        # Read image data using the correct MIME type
+        # Only read as image if we actually have image data available
         if has_image:
-            # Find the actual image MIME type in targets
-            image_mime = next((t for t in targets.split() if t.startswith("image/")), None)
-
-            if image_mime:
+            # Check for JPEG first (xclip 0.13 bug causes data truncation, but we try anyway)
+            if "image/jpeg" in targets:
                 result = subprocess.run(
-                    ["xclip", "-selection", "clipboard", "-t", image_mime, "-o"],
+                    ["xclip", "-selection", "clipboard", "-t", "image/jpeg", "-o"],
                     capture_output=True,
                     timeout=10,
                 )
                 if result.returncode == 0 and result.stdout:
-                    # Determine suffix from MIME type
-                    if "jpeg" in image_mime:
+                    # Verify it's actually a JPEG (starts with JPEG signature)
+                    if result.stdout[:2] == b"\xff\xd8":
+                        self._raw = result.stdout
                         self._suffix = "jpg"
-                    elif "png" in image_mime:
+                        return
+
+            # Check for PNG
+            if "image/png" in targets:
+                result = subprocess.run(
+                    ["xclip", "-selection", "clipboard", "-t", "image/png", "-o"],
+                    capture_output=True,
+                    timeout=10,
+                )
+                if result.returncode == 0 and result.stdout:
+                    # Verify it's actually a PNG (starts with PNG signature)
+                    if result.stdout.startswith(b"\x89PNG"):
+                        self._raw = result.stdout
                         self._suffix = "png"
-                    elif "bmp" in image_mime:
+                        return
+
+            # Check for BMP
+            if "image/bmp" in targets:
+                result = subprocess.run(
+                    ["xclip", "-selection", "clipboard", "-t", "image/bmp", "-o"],
+                    capture_output=True,
+                    timeout=10,
+                )
+                if result.returncode == 0 and result.stdout:
+                    # Verify it's actually a BMP (starts with "BM")
+                    if result.stdout[:2] == b"BM":
+                        self._raw = result.stdout
                         self._suffix = "bmp"
-                    elif "gif" in image_mime:
-                        self._suffix = "gif"
-                    elif "webp" in image_mime:
-                        self._suffix = "webp"
-                    elif "tiff" in image_mime:
-                        self._suffix = "tiff"
-                    elif "svg" in image_mime:
-                        self._suffix = "svg"
-                    else:
-                        self._suffix = "bin"
-                    self._raw = result.stdout
-                    return
+                        return
 
         # Fall back to text
         result = subprocess.run(
@@ -492,26 +502,16 @@ def _copy_linux(content_type: str, data: bytes) -> TempFile:
         "svg": "image/svg+xml",
     }
 
-    if content_type in image_mime_types:
-        # For images, use the correct MIME type
-        mime_type = image_mime_types[content_type]
-
-        subprocess.run(
-            ["xclip", "-selection", "clipboard", "-t", mime_type],
-            input=data,
-            timeout=30,
-            check=True,
-        )
-        return TempFile(None)
-    else:
-        # For files (txt, zip, etc.), create a file in temp directory and copy its URI
+    # Special handling for JPEG: use file URI instead of image data
+    # This is because xclip 0.13 has a bug with image/jpeg that causes timeouts
+    if content_type in ("jpg", "jpeg"):
+        # Use file URI method (text/uri-list) for JPEG compatibility
         os.makedirs(_TEMP_DIR, exist_ok=True)
 
-        # Create unique filename based on content
         import hashlib
 
         hash_obj = hashlib.md5(data).hexdigest()
-        ext = f".{content_type}" if content_type else ""
+        ext = ".jpg"
         temp_file = os.path.join(_TEMP_DIR, f"{hash_obj}{ext}")
 
         with open(temp_file, "wb") as f:
@@ -526,3 +526,37 @@ def _copy_linux(content_type: str, data: bytes) -> TempFile:
             check=True,
         )
         return TempFile(temp_file)
+
+    # For other image types (PNG, BMP, GIF, etc.), use image data directly
+    if content_type in image_mime_types:
+        mime_type = image_mime_types[content_type]
+        subprocess.run(
+            ["xclip", "-selection", "clipboard", "-t", mime_type],
+            input=data,
+            timeout=30,
+            check=True,
+        )
+        return TempFile(None)
+
+    # For files (txt, zip, etc.), create a file in temp directory and copy its URI
+    os.makedirs(_TEMP_DIR, exist_ok=True)
+
+    # Create unique filename based on content
+    import hashlib
+
+    hash_obj = hashlib.md5(data).hexdigest()
+    ext = f".{content_type}" if content_type else ""
+    temp_file = os.path.join(_TEMP_DIR, f"{hash_obj}{ext}")
+
+    with open(temp_file, "wb") as f:
+        f.write(data)
+
+    # Convert to file URI and copy to clipboard
+    file_uri = f"file://{quote(temp_file)}"
+    subprocess.run(
+        ["xclip", "-selection", "clipboard", "-t", "text/uri-list"],
+        input=file_uri.encode("utf-8"),
+        timeout=30,
+        check=True,
+    )
+    return TempFile(temp_file)
