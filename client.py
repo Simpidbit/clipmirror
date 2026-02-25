@@ -160,6 +160,7 @@ class EventMonitor:
                     logging.info(f'New message from server: {self.message_monitor.get_paste()}')
                     paste = self.message_monitor.get_paste()
                     spclipbd.copy_to_clipboard(paste.get_suffix(), paste.get_raw())
+                    self.clipboard_monitor.check_update()
                 if idx > 300:
                     # heart beat
                     idx = 0
