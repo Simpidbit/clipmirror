@@ -63,8 +63,12 @@ class MessageMonitor:
             self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         elif IP_VER == 6:
             self.socket = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
-        self.socket.connect((HOST, PORT))
-        self.socket.setblocking(False)
+
+        try:
+            self.socket.connect((HOST, PORT))
+            self.socket.setblocking(False)
+        except TimeoutError:
+            self.reconnect()
 
     def destruct(self) -> None:
         self.socket.close()
