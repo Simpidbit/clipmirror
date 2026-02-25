@@ -8,7 +8,9 @@ system clipboard across Windows, macOS, and Linux platforms.
 import os
 import platform
 import subprocess
-import tempfile
+import hashlib
+import multiprocessing
+import time
 from typing import Optional
 from urllib.parse import quote
 
@@ -635,6 +637,31 @@ def _copy_macos(content_type: str, data: bytes) -> TempFile:
 
         return TempFile(temp_file)
 
+def linux_uri_loop():
+    def query_targets(target: str = "TARGETS"):
+        return subprocess.run(
+            ["xclip", "-sel", "c", "-t", target, "-o"],
+            timeout=30,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout
+    while True:
+        result = query_targets()
+        if (not 'text/uri-list' in result) and ('UTF8_STRING' in result):
+            result = query_targets("UTF8_STRING")
+            if result[:len('file://')] == 'file://':
+                subprocess.run(
+                    ["xclip", "-sel", "c", "-t", "text/uri-list"],
+                    input=result.encode("utf-8"),
+                    timeout=30,
+                    check=True
+                )
+        time.sleep(0.05)
+if platform.system() == 'Linux':
+    linux_uri_loop_process = multiprocessing.Process(target = linux_uri_loop, daemon = True)
+    linux_uri_loop_process.daemon = True
+    linux_uri_loop_process.start()
 
 def _copy_macos_fallback(content_type: str, data: bytes) -> TempFile:
     """Fallback method for copying files when PyObjC is not available."""
@@ -663,9 +690,7 @@ def _copy_macos_fallback(content_type: str, data: bytes) -> TempFile:
     )
     return TempFile(temp_file)
 
-
 def _copy_linux(content_type: str, data: bytes) -> TempFile:
-    """Copy content to clipboard using xclip on Linux."""
     if content_type == "_plaintext":
         # For plain text
         subprocess.run(
@@ -675,29 +700,12 @@ def _copy_linux(content_type: str, data: bytes) -> TempFile:
             check=True,
         )
         return TempFile(None)
-
-    # Map image types to their MIME types
-    image_mime_types = {
-        "png": "image/png",
-        "jpg": "image/jpeg",
-        "jpeg": "image/jpeg",
-        "bmp": "image/bmp",
-        "gif": "image/gif",
-        "webp": "image/webp",
-        "tiff": "image/tiff",
-        "svg": "image/svg+xml",
-    }
-
-    # Special handling for JPEG: use file URI instead of image data
-    # This is because xclip 0.13 has a bug with image/jpeg that causes timeouts
-    if content_type in ("jpg", "jpeg"):
-        # Use file URI method (text/uri-list) for JPEG compatibility
+    else:
         os.makedirs(_TEMP_DIR, exist_ok=True)
 
-        import hashlib
-
+        # Create unique filename based on content
         hash_obj = hashlib.md5(data).hexdigest()
-        ext = ".jpg"
+        ext = f".{content_type}" if content_type else ""
         temp_file = os.path.join(_TEMP_DIR, f"{hash_obj}{ext}")
 
         with open(temp_file, "wb") as f:
@@ -705,44 +713,12 @@ def _copy_linux(content_type: str, data: bytes) -> TempFile:
 
         # Convert to file URI and copy to clipboard
         file_uri = f"file://{quote(temp_file)}"
+
         subprocess.run(
             ["xclip", "-selection", "clipboard", "-t", "text/uri-list"],
             input=file_uri.encode("utf-8"),
             timeout=30,
-            check=True,
+            check=True
         )
         return TempFile(temp_file)
 
-    # For other image types (PNG, BMP, GIF, etc.), use image data directly
-    if content_type in image_mime_types:
-        mime_type = image_mime_types[content_type]
-        subprocess.run(
-            ["xclip", "-selection", "clipboard", "-t", mime_type],
-            input=data,
-            timeout=30,
-            check=True,
-        )
-        return TempFile(None)
-
-    # For files (txt, zip, etc.), create a file in temp directory and copy its URI
-    os.makedirs(_TEMP_DIR, exist_ok=True)
-
-    # Create unique filename based on content
-    import hashlib
-
-    hash_obj = hashlib.md5(data).hexdigest()
-    ext = f".{content_type}" if content_type else ""
-    temp_file = os.path.join(_TEMP_DIR, f"{hash_obj}{ext}")
-
-    with open(temp_file, "wb") as f:
-        f.write(data)
-
-    # Convert to file URI and copy to clipboard
-    file_uri = f"file://{quote(temp_file)}"
-    subprocess.run(
-        ["xclip", "-selection", "clipboard", "-t", "text/uri-list"],
-        input=file_uri.encode("utf-8"),
-        timeout=30,
-        check=True,
-    )
-    return TempFile(temp_file)

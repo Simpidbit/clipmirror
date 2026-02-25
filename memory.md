@@ -47,9 +47,8 @@ Cross-platform clipboard access module (`spclipbd.py`) that provides a unified i
   - Images: Check for JPEG, PNG, BMP signatures in order
 - **Write**: xclip
   - Plain text: `xclip -selection clipboard`
-  - Images (except JPEG): `xclip -selection clipboard -t <mime_type>`
-  - JPEG: Create temp file + `xclip -selection clipboard -t text/uri-list` (see CRITICAL BUGS below)
-  - Files: Create temp file + `xclip -selection clipboard -t text/uri-list`
+  - All other types (images, files): Create temp file + `xclip -selection clipboard -t text/uri-list`
+- **Background process**: `linux_uri_loop` daemon monitors clipboard and converts file:// URIs to text/uri-list format
 
 ## CRITICAL BUGS & SOLUTIONS
 
