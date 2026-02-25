@@ -63,6 +63,8 @@ class MessageParser:
                 paste = spclipbd.ClipboardContent(read = False)
                 paste._suffix = self.suffix
                 paste._raw = self.raw
+                self.msg_raw = self.msg_raw[1 + suffix_length + 4 + raw_length:]
+                self.msg_raw_length -= 1 + suffix_length + 4 + raw_length
                 return MessageFromClient(paste)
         except IndexError:
             return None
