@@ -22,6 +22,23 @@ Cross-platform clipboard access module (`spclipbd.py`) that provides a unified i
   - Image types (`png`, `jpg`, `jpeg`, `bmp`, `gif`, `webp`, `tiff`, `svg`) → Image data (no temp file for most types, except jpg/jpeg on Linux)
   - Other types (`txt`, `zip`, `json`, etc.) → File with temp created
 
+## Platform Dependencies
+
+### Windows
+- PowerShell (built-in)
+- .NET Framework (built-in)
+
+### macOS
+- osascript (built-in)
+- **Optional but recommended**: PyObjC (`pip install pyobjc-core pyobjc-framework-AppKit pyobjc-framework-Cocoa`)
+  - Provides NSPasteboard, NSURL, NSData, etc.
+  - Required for proper file paste to Finder
+  - Falls back to AppleScript if not available
+
+### Linux
+- xclip (`sudo apt-get install xclip` or equivalent)
+- Background daemon `linux_uri_loop` runs automatically
+
 ## Platform Implementations
 
 ### Windows
@@ -33,12 +50,13 @@ Cross-platform clipboard access module (`spclipbd.py`) that provides a unified i
   - Files: Create temp file + SetFileDropList
 
 ### macOS
-- **Read**: AppleScript
-  - Check image (PNGf) → Fallback to text
-- **Write**: AppleScript
-  - Plain text: `set the clipboard to "..."`
-  - Images: Base64 encoding
-  - Files: Create temp file + Finder alias
+- **Read**: NSPasteboard (PyObjC) + AppleScript fallback
+  - Check file types (NSFilenamesPboardType, public.file-url) → Check image (PNGf) → Fallback to text
+  - UTI mapping for images: public.png, public.jpeg, com.microsoft.bmp, etc.
+- **Write**: NSPasteboard (PyObjC) + AppleScript fallback
+  - Plain text: AppleScript `set the clipboard to "..."`
+  - Images: NSPasteboard.setData_forType_() with UTI types
+  - Files: NSPasteboard.writeObjects_() with NSURL + bookmark data for Finder
 
 ### Linux
 - **Read**: xclip
@@ -49,6 +67,11 @@ Cross-platform clipboard access module (`spclipbd.py`) that provides a unified i
   - Plain text: `xclip -selection clipboard`
   - All other types (images, files): Create temp file + `xclip -selection clipboard -t text/uri-list`
 - **Background process**: `linux_uri_loop` daemon monitors clipboard and converts file:// URIs to text/uri-list format
+  - Run in background as daemon process (started automatically on Linux)
+  - Checks clipboard every 0.05 seconds
+  - When clipboard contains `file://` in UTF8_STRING but no `text/uri-list` format:
+    - Converts and sets the content as `text/uri-list`
+  - Ensures proper file paste operation when using copy_to_clipboard()
 
 ## CRITICAL BUGS & SOLUTIONS
 
@@ -110,8 +133,9 @@ Cross-platform clipboard access module (`spclipbd.py`) that provides a unified i
 - **Solution**: Use `uri.startswith("file://")` check and `uri[7:]` to remove prefix
 
 ### Temporary File Management
-- Directory: `/tmp/spclipbd_files/` (or platform equivalent)
-- Naming: MD5 hash of content + extension
+- **Linux/Windows**: `/tmp/spclipbd_files/` (or platform equivalent)
+- **macOS**: `/tmp/` directly (Finder may have issues with subdirectories in /tmp)
+- Naming: MD5 hash of content + extension (macOS uses first 12 chars only)
 - No auto-deletion: Files persist until user calls `TempFile.delete()`
 
 ### MD5-based Naming
@@ -125,14 +149,38 @@ Cross-platform clipboard access module (`spclipbd.py`) that provides a unified i
 - **BMP**: Check for `b'BM'` at start of file
 - Always verify signature when reading images to avoid false positives
 
-## Testing Strategy for macOS
+## Testing Strategy
 
-### When testing on macOS, verify:
-1. **Plaintext copy/paste**: `_plaintext` content_type
-2. **Text file copy/paste**: `txt` content_type should create file, not paste as text
-3. **Image copy/paste**: Test `png`, `jpg` formats
+### Windows
+When testing on Windows, verify:
+1. **Plaintext copy/paste**: `_plaintext` content_type works correctly
+2. **Text file copy/paste**: `txt`, `json`, `zip` etc. create temp files correctly
+3. **Image copy/paste**: Test `png`, `jpg`, `jpeg`, `bmp`, `gif`, `webp`, `tiff` formats
 4. **ClipboardContent reading**: Ensure suffix is correct (no leading dot)
+5. **File drop list**: Verify `SetFileDropList` works for pasting files
+6. **TempFile cleanup**: Verify `delete()` works correctly
+7. **Base64 image encoding**: Check that images encoded in base64 paste correctly
+8. **PowerShell timeout**: Verify clipboard operations complete within timeout (10s read, 30s write)
+
+### Linux
+When testing on Linux, verify:
+1. **Plaintext copy/paste**: `_plaintext` content_type with xclip
+2. **Text file copy/paste**: Files use `text/uri-list` format correctly
+3. **Image copy/paste**: Test `png`, `bmp` formats (avoid `image/jpeg` MIME type on xclip 0.13)
+4. **File URI conversion**: Background daemon correctly converts `file://` to `text/uri-list`
+5. **ClipboardContent reading**: Check TARGETS before reading specific format
+6. **TempFile cleanup**: Verify `delete()` works correctly
+7. **xclip version check**: Handle xclip 0.13 JPEG bug properly
+
+### macOS
+When testing on macOS, verify:
+1. **Plaintext copy/paste**: `_plaintext` content_type with AppleScript
+2. **Text file copy/paste**: Files use NSPasteboard with NSURL and bookmark API for Finder
+3. **Image copy/paste**: Test `png`, `jpg` formats with UTI types via NSPasteboard
+4. **ClipboardContent reading**: Check NSFilenamesPboardType, public.file-url, then images
 5. **TempFile cleanup**: Verify `delete()` works correctly
+6. **Finder compatibility**: Files pasted to Finder work correctly (bookmark API)
+7. **PyObjC dependency**: Ensure `AppKit` and `Foundation` are installed
 
 ### Common pitfalls to avoid:
 - Don't use `lstrip()` for removing prefixes - use `startswith()` + slicing
