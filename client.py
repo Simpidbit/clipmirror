@@ -87,7 +87,7 @@ class MessageMonitor:
     def reconnect(self) -> None:
         self.socket.close()
         while True:
-            time.sleep(0.5)
+            time.sleep(3)
             if IP_VER == 4:
                 self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             elif IP_VER == 6:
