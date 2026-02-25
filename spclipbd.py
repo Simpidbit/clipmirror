@@ -68,7 +68,7 @@ class ClipboardContent:
     Supports text, images, and files across Windows, macOS, and Linux platforms.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, read: bool = True) -> None:
         """
         Initialize and read the current clipboard content.
 
@@ -79,14 +79,15 @@ class ClipboardContent:
         self._suffix: str = "_plaintext"
         system = platform.system()
 
-        if system == "Windows":
-            self._read_windows()
-        elif system == "Darwin":
-            self._read_macos()
-        elif system == "Linux":
-            self._read_linux()
-        else:
-            raise RuntimeError(f"Unsupported platform: {system}")
+        if read:
+            if system == "Windows":
+                self._read_windows()
+            elif system == "Darwin":
+                self._read_macos()
+            elif system == "Linux":
+                self._read_linux()
+            else:
+                raise RuntimeError(f"Unsupported platform: {system}")
 
     def _read_windows(self) -> None:
         """Read clipboard content using PowerShell and .NET API on Windows."""
@@ -666,13 +667,16 @@ def _copy_macos(content_type: str, data: bytes) -> TempFile:
 
 def linux_uri_loop():
     def query_targets(target: str = "TARGETS"):
-        return subprocess.run(
-            ["xclip", "-sel", "c", "-t", target, "-o"],
-            timeout=30,
-            check=True,
-            capture_output=True,
-            text=True,
-        ).stdout
+        try:
+            return subprocess.run(
+                ["xclip", "-sel", "c", "-t", target, "-o"],
+                timeout=30,
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout
+        except subprocess.CalledProcessError:
+            return ''
     while True:
         result = query_targets()
         if (not 'text/uri-list' in result) and ('UTF8_STRING' in result):

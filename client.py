@@ -1,9 +1,12 @@
 import pyperclip
+import spclipbd
 import time
 import socket
 import sys
 import logging
 import ipaddress
+import hashlib
+from server import MessageParser, MessageFromClient
 
 HOST = set([info[4][0] for info in socket.getaddrinfo(sys.argv[1], None)]).pop()
 PORT = int(sys.argv[2])
@@ -11,40 +14,50 @@ IP_VER = ipaddress.ip_address(HOST).version
 
 class ClipboardMonitor:
     def __init__(self) -> None:
-        self.current_paste = str()
+        self.current_paste: spclipbd.ClipboardContent | None = None
+        self.current_paste_digest: str | None = None
 
     def destruct(self) -> None:
         pass
 
     def check_update(self) -> bool:
-        if self.current_paste == str():
-            self.current_paste = pyperclip.paste()
+        if self.current_paste == None:
+            self.current_paste = spclipbd.ClipboardContent()
+            suffix_digest = hashlib.sha256(self.current_paste.get_suffix().encode('utf-8')).hexdigest()
+            raw_digest = hashlib.sha256(self.current_paste.get_raw()).hexdigest()
+            self.current_paste_digest = suffix_digest + raw_digest
             return False
         else:
-            try:
-                new_paste = pyperclip.paste()
-            except UnicodeDecodeError:
-                new_paste = self.current_paste
-            if new_paste != self.current_paste:
+            new_paste = spclipbd.ClipboardContent()
+            new_suffix_digest = hashlib.sha256(new_paste.get_suffix().encode('utf-8')).hexdigest()
+            new_raw_digest = hashlib.sha256(new_paste.get_raw()).hexdigest()
+            new_digest = new_suffix_digest + new_raw_digest
+
+            if new_digest != self.current_paste_digest:
                 self.current_paste = new_paste
+                self.current_paste_digest = new_digest
                 return True
         return False
 
     # 格式:
-    # | paste长度(4字节) | paste |
+    # | paste类型长度(1字节) | paste类型 | paste长度(4字节) | paste |
     def make_msg(self) -> bytes:
-        msg = int(len(self.current_paste.encode('utf-8'))).to_bytes(4, 'big') + \
-              self.current_paste.encode('utf-8')
-        return msg
+        if isinstance(self.current_paste, spclipbd.ClipboardContent):
+            msg = int(len(self.current_paste.get_suffix())).to_bytes(1, 'big') + \
+                  self.current_paste.get_suffix().encode('utf-8') + \
+                  int(len(self.current_paste.get_raw())).to_bytes(4, 'big') + \
+                  self.current_paste.get_raw()
+            return msg
+        else:
+            raise RuntimeError
 
 
-# 报文格式:
-# | 四位数字 | 消息
 class MessageMonitor:
     def __init__(self) -> None:
-        self.paste = str()
-        self.raw = bytes()
-        self.raw_length = 0
+        self.paste: spclipbd.ClipboardContent = spclipbd.ClipboardContent(read = False)
+        self.parser: MessageParser = MessageParser()
+        self.msg_raw = bytes()
+        self.msg_raw_length = 0
         
         if IP_VER == 4:
             self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -56,24 +69,16 @@ class MessageMonitor:
     def destruct(self) -> None:
         self.socket.close()
 
-    def get_paste(self) -> str:
+    def get_paste(self) -> spclipbd.ClipboardContent:
         return self.paste
 
-    def load_raw(self, raw) -> bool:
-        self.raw += raw
-        self.raw_length += len(raw)
-        if self.raw_length >= 4:
-            paste_length = int.from_bytes(self.raw[:4], 'big')
-        else:
+    def load_raw(self, raw: bytes) -> bool:
+        result = self.parser.load(raw)
+        if result is None:
             return False
-        
-        if len(self.raw) >= 4 + paste_length:
-            self.paste = self.raw[4 : 4 + paste_length].decode('utf-8')
-            self.raw = self.raw[4 + paste_length:]
-            self.raw_length -= 4 + paste_length
+        else:
+            self.paste = result.paste
             return True
-        else:
-            return False
 
     def reconnect(self) -> None:
         self.socket.close()
@@ -149,11 +154,12 @@ class EventMonitor:
                     )
                 if self.message_monitor.check_msg():
                     logging.info(f'New message from server: {self.message_monitor.get_paste()}')
-                    pyperclip.copy(self.message_monitor.get_paste())
+                    paste = self.message_monitor.get_paste()
+                    spclipbd.copy_to_clipboard(paste.get_suffix(), paste.get_raw())
                 if idx > 300:
                     # heart beat
                     idx = 0
-                    self.message_monitor.send_msg(b'\x00\x00\x00\x00')
+                    self.message_monitor.send_msg(b'\xff\xff')
                 time.sleep(0.1)
                 idx += 1
         except KeyboardInterrupt:

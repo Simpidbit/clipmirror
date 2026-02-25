@@ -36,8 +36,15 @@ def test_jpg():
     print_clipboard()
     input('next...')
 
+def test_zip():
+    print('test zip:')
+    spclipbd.copy_to_clipboard('zip', read_bin('test.zip'))
+    print_clipboard()
+    input('next...')
+
 if __name__ == '__main__':
     test_plaintext()
     test_txt()
+    test_zip()
     test_png()
     test_jpg()

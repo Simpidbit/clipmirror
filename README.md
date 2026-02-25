@@ -14,12 +14,19 @@ ClipMirror 采用客户端-服务器架构，实现剪贴板内容的实时同�
 ### 环境要求
 
 - Python 3.x
-- 依赖库：`pyperclip`
+- 依赖库：
+  - Linux: `xclip` (系统包)
+  - macOS: PyObjC (可选，推荐) `pip install pyobjc-core pyobjc-framework-AppKit`
+  - Windows: 无额外依赖
 
 ### 安装依赖
 
 ```bash
-pip install pyperclip
+# Linux
+sudo apt-get install xclip
+
+# macOS (可选，用于更好的文件粘贴支持)
+pip install pyobjc-core pyobjc-framework-AppKit
 ```
 
 ### 启动服务端
@@ -78,7 +85,8 @@ nohup python client.py 192.168.1.100 5000 &
 
 ### 平台兼容性
 
-- 支持 Linux 和 macOS 系统
+- 支持 Windows、Linux 和 macOS 系统
+- 支持多种剪贴板内容类型：纯文本、图片、文件等
 - 不同平台的 socket 错误处理存在差异，已做兼容处理
 - macOS 系统从休眠唤醒后可能需要重连，已实现自动重连机制
 
@@ -96,12 +104,14 @@ nohup python client.py 192.168.1.100 5000 &
 采用 TCP Socket 进行可靠通信，消息格式如下：
 
 ```
-| 4字节长度(大端序) | 消息内容(UTF-8编码) |
+| 1字节类型长度 | 类型后缀(UTF-8) | 4字节数据长度(大端序) | 原始数据 |
 ```
 
-- 前 4 字节表示消息内容的字节长度
-- 剩余字节为 UTF-8 编码的实际内容
-- 长度为 0 的消息 (`\x00\x00\x00\x00`) 用作心跳包
+- 第 1 字节表示类型后缀的长度
+- 类型后缀：`_plaintext` 表示纯文本，其他如 `png`、`txt`、`zip` 等表示文件类型
+- 4 字节数据长度：表示原始数据的字节长度
+- 原始数据：文本为 UTF-8 编码，其他为二进制数据
+- `\xff\xff` (2字节) 用作心跳包
 
 ### 服务端架构
 

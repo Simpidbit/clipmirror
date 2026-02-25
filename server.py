@@ -1,3 +1,4 @@
+import spclipbd
 import socket
 import select
 import threading
@@ -5,8 +6,9 @@ import sys
 import logging
 import ipaddress
 
-HOST = sys.argv[1]
-PORT = int(sys.argv[2])
+if __name__ == '__main__':
+    HOST = sys.argv[1]
+    PORT = int(sys.argv[2])
 
 def sendall(s:socket.socket, msg:bytes) -> None:
     logging.info(f'Send {msg} to {s.getpeername()}...')
@@ -17,39 +19,50 @@ def sendall(s:socket.socket, msg:bytes) -> None:
         logging.info(f'Failed to send {msg} to {s.getpeername()}!')
 
 class MessageFromClient:
-    def __init__(self, paste:str) -> None:
+    def __init__(self, paste: spclipbd.ClipboardContent) -> None:
         self.paste = paste
 
     def make_msg_to_client(self) -> bytes:
-        return int(len(self.paste.encode('utf-8'))).to_bytes(4, 'big') + \
-               self.paste.encode('utf-8')
+        msg = int(len(self.paste.get_suffix())).to_bytes(1, 'big') + \
+              self.paste.get_suffix().encode('utf-8') + \
+              int(len(self.paste.get_raw())).to_bytes(4, 'big') + \
+              self.paste.get_raw()
+        return msg
 
 
 class MessageParser:
     def __init__(self) -> None:
-        self.raw = bytes()
-        self.raw_length = int()
+        self.suffix: str = str()
+        self.suffix_length: int = int()
+        self.raw: bytes = bytes()
+        self.raw_length: int = int()
+        self.msg_raw: bytes = bytes()
+        self.msg_raw_length: int = int()
 
     def load(self, msg:bytes) -> None | MessageFromClient:
-        self.raw += msg
-        self.raw_length += len(msg)
+        self.msg_raw += msg
+        self.msg_raw_length += len(msg)
 
         try:
-            paste_length = int.from_bytes(self.raw[0:4], 'big')
-
-            if paste_length == 0:
+            suffix_length = int.from_bytes(self.msg_raw[:1], 'big')
+            if suffix_length == 0xff and self.msg_raw[1] == b'\xff':
                 # heart beat
-                self.raw = self.raw[4:]
-                self.raw_length -= 4
+                self.msg_raw = self.msg_raw[2:]
+                self.msg_raw_length -= 2
                 return None
-
-            complete_msg_length = 4 + paste_length
-            if len(self.raw) < complete_msg_length:
+            suffix = self.msg_raw[1 : 1 + suffix_length].decode('utf-8')
+            raw_length = int.from_bytes(self.msg_raw[1 + suffix_length : 1 + suffix_length + 4], 'big')
+            raw = self.msg_raw[1 + suffix_length + 4 : 1 + suffix_length + 4 + raw_length]
+            if len(raw) < raw_length:
                 raise IndexError
             else:
-                paste = self.raw[4 : 4 + paste_length].decode('utf-8')
-                self.raw = self.raw[complete_msg_length:]
-                self.raw_length -= complete_msg_length
+                self.suffix_length = suffix_length
+                self.suffix = suffix
+                self.raw_length = raw_length
+                self.raw = raw
+                paste = spclipbd.ClipboardContent(read = False)
+                paste._suffix = self.suffix
+                paste._raw = self.raw
                 return MessageFromClient(paste)
         except IndexError:
             return None
