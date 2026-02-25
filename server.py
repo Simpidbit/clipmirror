@@ -45,7 +45,7 @@ class MessageParser:
 
         try:
             suffix_length = int.from_bytes(self.msg_raw[:1], 'big')
-            if suffix_length == 0xff and self.msg_raw[1] == b'\xff':
+            if suffix_length == 0xff and self.msg_raw[1] == 0xff:
                 # heart beat
                 self.msg_raw = self.msg_raw[2:]
                 self.msg_raw_length -= 2
