@@ -158,7 +158,11 @@ class ClipboardContent:
             text=True,
             timeout=10,
         )
-        self._raw = result.stdout.encode("utf-8")
+        # PowerShell adds a trailing newline to output, remove it
+        text_content = result.stdout
+        if text_content.endswith("\n"):
+            text_content = text_content[:-1]
+        self._raw = text_content.encode("utf-8")
 
     def _read_macos(self) -> None:
         """Read clipboard content using AppleScript on macOS."""
@@ -468,13 +472,25 @@ def copy_to_clipboard(content_type: str, data: bytes) -> TempFile:
 
 def _copy_windows(content_type: str, data: bytes) -> TempFile:
     """Copy content to clipboard using PowerShell on Windows."""
+    import tempfile
+
+    # Use Windows-native temp directory path for proper Explorer compatibility
+    _win_temp_dir = os.path.join(tempfile.gettempdir(), "spclipbd_files")
+
     if content_type == "_plaintext":
         # For plain text
         text = data.decode("utf-8")
-        script = (
-            "Add-Type -AssemblyName System.Windows.Forms; "
-            f"[System.Windows.Forms.Clipboard]::SetText(@'\n{text}\n'@)"
-        )
+        # Handle empty text - SetText doesn't work with empty string
+        if not text:
+            script = (
+                "Add-Type -AssemblyName System.Windows.Forms; "
+                "[System.Windows.Forms.Clipboard]::Clear()"
+            )
+        else:
+            script = (
+                "Add-Type -AssemblyName System.Windows.Forms; "
+                f"[System.Windows.Forms.Clipboard]::SetText(@'\n{text}\n'@)"
+            )
         subprocess.run(
             ["powershell", "-Command", script],
             capture_output=True,
@@ -486,16 +502,24 @@ def _copy_windows(content_type: str, data: bytes) -> TempFile:
     # Check if it's an image type
     image_types = {"png", "jpg", "jpeg", "bmp", "gif", "webp", "tiff", "svg"}
     if content_type in image_types:
-        # For images, use base64 encoding
-        import base64
+        # For images, write to temp file first to avoid command line length limit
+        os.makedirs(_win_temp_dir, exist_ok=True)
+        import hashlib
 
-        b64_data = base64.b64encode(data).decode("ascii")
+        hash_obj = hashlib.md5(data).hexdigest()
+        ext = f".{content_type}" if content_type else ".png"
+        temp_image_file = os.path.join(_win_temp_dir, f"{hash_obj}{ext}")
+
+        with open(temp_image_file, "wb") as f:
+            f.write(data)
+
+        # Read image from temp file and set to clipboard
         script = (
-            f"$bytes = [System.Convert]::FromBase64String('{b64_data}'); "
-            "$stream = [System.IO.MemoryStream]::new($bytes); "
-            "$img = [System.Drawing.Image]::FromStream($stream); "
-            "Add-Type -AssemblyName System.Windows.Forms; "
-            "[System.Windows.Forms.Clipboard]::SetImage($img)"
+            f'Add-Type -AssemblyName System.Windows.Forms; '
+            f'Add-Type -AssemblyName System.Drawing; '
+            f'$img = [System.Drawing.Image]::FromFile("{temp_image_file}"); '
+            f'[System.Windows.Forms.Clipboard]::SetImage($img); '
+            f'$img.Dispose()'
         )
         subprocess.run(
             ["powershell", "-Command", script],
@@ -503,16 +527,19 @@ def _copy_windows(content_type: str, data: bytes) -> TempFile:
             timeout=30,
             check=True,
         )
+
+        # Remove temp image file (image is now in clipboard)
+        os.unlink(temp_image_file)
         return TempFile(None)
     else:
         # For files (txt, zip, etc.), create a file in temp directory
-        os.makedirs(_TEMP_DIR, exist_ok=True)
+        os.makedirs(_win_temp_dir, exist_ok=True)
 
         import hashlib
 
         hash_obj = hashlib.md5(data).hexdigest()
         ext = f".{content_type}" if content_type else ""
-        temp_file = os.path.join(_TEMP_DIR, f"{hash_obj}{ext}")
+        temp_file = os.path.join(_win_temp_dir, f"{hash_obj}{ext}")
 
         with open(temp_file, "wb") as f:
             f.write(data)

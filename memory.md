@@ -44,10 +44,12 @@ Cross-platform clipboard access module (`spclipbd.py`) that provides a unified i
 ### Windows
 - **Read**: PowerShell + .NET API
   - Check image → Check files (GetFileDropList) → Fallback to text
+  - **Important**: PowerShell adds trailing newline to output, must strip it when reading text
 - **Write**: PowerShell + .NET API
-  - Plain text: SetText
-  - Images: Base64 encoding + SetImage
+  - Plain text: SetText (use Clear() for empty text)
+  - Images: Write to temp file first, then load with Image.FromFile() + SetImage()
   - Files: Create temp file + SetFileDropList
+  - **Limitation**: Windows clipboard converts all image formats to PNG when reading back
 
 ### macOS
 - **Read**: NSPasteboard (PyObjC) + AppleScript fallback
@@ -74,6 +76,73 @@ Cross-platform clipboard access module (`spclipbd.py`) that provides a unified i
   - Ensures proper file paste operation when using copy_to_clipboard()
 
 ## CRITICAL BUGS & SOLUTIONS
+
+### Bug: PowerShell adds trailing newline to text output (Windows)
+- **Environment**: Windows with PowerShell
+- **Symptoms**:
+  - Reading clipboard text returns content with extra `\n` at the end
+  - `GetText()` output is correct, but PowerShell console adds newline
+- **Root cause**: PowerShell's Write-Output always appends a newline to string output
+- **Solution**: Strip trailing newline when reading text
+  ```python
+  text_content = result.stdout
+  if text_content.endswith("\n"):
+      text_content = text_content[:-1]
+  self._raw = text_content.encode("utf-8")
+  ```
+
+### Bug: PowerShell command line too long for images (Windows)
+- **Environment**: Windows with large images (>8KB base64)
+- **Symptoms**:
+  - `[WinError 206] 文件名或扩展名太长` (The filename or extension is too long)
+  - Image copy fails for files larger than a few KB
+- **Root cause**: Passing base64-encoded image data in command line exceeds Windows limit
+- **Solution**: Write image to temp file, then load with .NET
+  ```python
+  # Write image to temp file first
+  temp_image_file = os.path.join(_TEMP_DIR, f"{hash_obj}.{content_type}")
+  with open(temp_image_file, "wb") as f:
+      f.write(data)
+
+  # Load from file and set to clipboard
+  script = (
+      f'Add-Type -AssemblyName System.Windows.Forms; '
+      f'Add-Type -AssemblyName System.Drawing; '
+      f'$img = [System.Drawing.Image]::FromFile("{temp_image_file}"); '
+      f'[System.Windows.Forms.Clipboard]::SetImage($img); '
+      f'$img.Dispose()'
+  )
+  # Clean up temp file after setting clipboard
+  os.unlink(temp_image_file)
+  ```
+
+### Bug: SetText fails with empty string (Windows)
+- **Environment**: Windows with empty text
+- **Symptoms**:
+  - `CalledProcessError` when trying to set empty text to clipboard
+- **Root cause**: `[System.Windows.Forms.Clipboard]::SetText()` throws exception for empty string
+- **Solution**: Use `Clear()` for empty text
+  ```python
+  if not text:
+      script = (
+          "Add-Type -AssemblyName System.Windows.Forms; "
+          "[System.Windows.Forms.Clipboard]::Clear()"
+      )
+  ```
+
+### Bug: File paste not working in Explorer (Windows)
+- **Environment**: Windows Explorer, QQ, etc.
+- **Symptoms**:
+  - After `copy_to_clipboard('txt', ...)`, pasting in Explorer shows no response
+  - FileDropList is set correctly but applications can't paste the file
+- **Root cause**: Mixed path format `/tmp/spclipbd_files\...` - Git Bash's `/tmp` mapped to Windows temp, but path separators were inconsistent
+- **Solution**: Use Windows-native temp directory path with `tempfile.gettempdir()`
+  ```python
+  import tempfile
+  # Use Windows-native temp directory path for proper Explorer compatibility
+  _win_temp_dir = os.path.join(tempfile.gettempdir(), "spclipbd_files")
+  # Results in: C:\Users\xxx\AppData\Local\Temp\spclipbd_files\...
+  ```
 
 ### Bug: xclip 0.13 image/jpeg timeout
 - **Environment**: Linux with xclip version 0.13
@@ -155,12 +224,15 @@ Cross-platform clipboard access module (`spclipbd.py`) that provides a unified i
 When testing on Windows, verify:
 1. **Plaintext copy/paste**: `_plaintext` content_type works correctly
 2. **Text file copy/paste**: `txt`, `json`, `zip` etc. create temp files correctly
-3. **Image copy/paste**: Test `png`, `jpg`, `jpeg`, `bmp`, `gif`, `webp`, `tiff` formats
+3. **Image copy/paste**: Test `png`, `jpg` formats
+   - Note: Windows clipboard converts all image formats to PNG when reading back
+   - This is a Windows API limitation, not a bug
 4. **ClipboardContent reading**: Ensure suffix is correct (no leading dot)
 5. **File drop list**: Verify `SetFileDropList` works for pasting files
 6. **TempFile cleanup**: Verify `delete()` works correctly
-7. **Base64 image encoding**: Check that images encoded in base64 paste correctly
-8. **PowerShell timeout**: Verify clipboard operations complete within timeout (10s read, 30s write)
+7. **PowerShell timeout**: Verify clipboard operations complete within timeout (10s read, 30s write)
+8. **Empty text**: Verify empty text is handled correctly (uses Clear())
+9. **Large images**: Verify large images (>100KB) work correctly (uses temp file method)
 
 ### Linux
 When testing on Linux, verify:
