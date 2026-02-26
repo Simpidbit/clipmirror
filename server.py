@@ -13,7 +13,7 @@ if __name__ == '__main__':
     PORT = int(sys.argv[2])
 
 def sendall(s:socket.socket, msg:bytes) -> None:
-    logging.info(f'Send {msg} to {s.getpeername()}...')
+    logging.info(f'Send (msg[:100]) {msg[:100]} to {s.getpeername()}...')
     sel = selectors.DefaultSelector()
     sel.register(s, selectors.EVENT_WRITE)
     view = memoryview(msg)
@@ -117,7 +117,7 @@ class MessagePeeker:
                 logging.info('New msg from client!')
                 try:
                     data = self.inputs[ri].recv(4096)
-                    logging.info(f'Receive data: {data} with length {len(data)}')
+                    logging.info(f'Receive data (data[:100]): {data[:100]} with length {len(data)}')
                     if data:
                         msg_from_client = self.parsers[ri].load(data)
                         if msg_from_client is not None:
@@ -138,12 +138,13 @@ class MessagePeeker:
         return loaded_msgs
 
     def broadcast(self, msg:MessageFromClient) -> None:
-        logging.info(f'broadcast: {msg.make_msg_to_client()}')
+        msg_raw = msg.make_msg_to_client()
+        logging.info(f'broadcast() (msg_raw[:100]): {msg_raw[:100]} with length {len(msg_raw)}')
         for cs in self.inputs[1:]:
             try:
                 peername = cs.getpeername()
                 logging.info(f'broadcast to: {peername[0]}:{peername[1]}')
-                threading.Thread(target = sendall, args = (cs, msg.make_msg_to_client()), daemon = True).start()
+                threading.Thread(target = sendall, args = (cs, msg_raw), daemon = True).start()
             except Exception:
                 traceback.print_exc()
                 logging.info('broadcast failed, pass.')
