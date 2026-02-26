@@ -1,4 +1,3 @@
-import pyperclip
 import spclipbd
 import time
 import socket
@@ -6,7 +5,8 @@ import sys
 import logging
 import ipaddress
 import hashlib
-from server import MessageParser, MessageFromClient
+from server import MessageParser
+import traceback
 
 HOST = set([info[4][0] for info in socket.getaddrinfo(sys.argv[1], None)]).pop()
 PORT = int(sys.argv[2])
@@ -100,13 +100,14 @@ class MessageMonitor:
             except KeyboardInterrupt:
                 logging.info('Exit by KeyboardInterrupt.')
                 sys.exit(0)
-            except:
+            except Exception:
+                traceback.print_exc()
                 logging.info(f'Reconnect to {HOST}:{PORT} failed, retry...')
 
     def check_msg(self) -> bool:
         try:
             data = self.socket.recv(4096)
-            logging.info(f'Receive data: {data} with length {len(data)}.')
+            logging.info(f'Receive data (data[:100]): {data[:100]} with length {len(data)}.')
 
             if not data:
                 # Connection was closed
@@ -129,16 +130,18 @@ class MessageMonitor:
             logging.warning(f'Socket error: {e}, reconnecting...')
             self.reconnect()
             return False
-        except:
+        except Exception:
+            traceback.print_exc()
             logging.info('Unknown exception')
             return False
 
     def send_msg(self, msg:bytes) -> None:
-        logging.info(f'Send msg: {msg}')
+        logging.info(f'Send msg (msg[:100]): {msg[:100]} with length {len(msg)}')
         try:
             self.socket.sendall(msg)
             logging.info('Send OK.')
-        except:
+        except Exception:
+            traceback.print_exc()
             self.reconnect()
             logging.info('Send canceled but reconnected.')
 

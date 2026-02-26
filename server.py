@@ -5,6 +5,7 @@ import threading
 import sys
 import logging
 import ipaddress
+import traceback
 
 if __name__ == '__main__':
     HOST = sys.argv[1]
@@ -15,7 +16,8 @@ def sendall(s:socket.socket, msg:bytes) -> None:
     try:
         s.sendall(msg)
         logging.info('Send OK.')
-    except:
+    except Exception:
+        traceback.print_exc()
         logging.info(f'Failed to send {msg} to {s.getpeername()}!')
 
 class MessageFromClient:
@@ -132,7 +134,8 @@ class MessagePeeker:
                 peername = cs.getpeername()
                 logging.info(f'broadcast to: {peername[0]}:{peername[1]}')
                 threading.Thread(target = sendall, args = (cs, msg.make_msg_to_client()), daemon = True).start()
-            except:
+            except Exception:
+                traceback.print_exc()
                 logging.info('broadcast failed, pass.')
 
 
