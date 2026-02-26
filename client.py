@@ -5,7 +5,7 @@ import sys
 import logging
 import ipaddress
 import hashlib
-from server import MessageParser
+from server import MessageParser, sendall
 import traceback
 
 HOST = set([info[4][0] for info in socket.getaddrinfo(sys.argv[1], None)]).pop()
@@ -138,8 +138,7 @@ class MessageMonitor:
     def send_msg(self, msg:bytes) -> None:
         logging.info(f'Send msg (msg[:100]): {msg[:100]} with length {len(msg)}')
         try:
-            self.socket.sendall(msg)
-            logging.info('Send OK.')
+            sendall(self.socket, msg)
         except Exception:
             traceback.print_exc()
             self.reconnect()

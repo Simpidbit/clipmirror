@@ -6,6 +6,7 @@ import sys
 import logging
 import ipaddress
 import traceback
+import selectors
 
 if __name__ == '__main__':
     HOST = sys.argv[1]
@@ -13,12 +14,21 @@ if __name__ == '__main__':
 
 def sendall(s:socket.socket, msg:bytes) -> None:
     logging.info(f'Send {msg} to {s.getpeername()}...')
-    try:
-        s.sendall(msg)
-        logging.info('Send OK.')
-    except Exception:
-        traceback.print_exc()
-        logging.info(f'Failed to send {msg} to {s.getpeername()}!')
+    sel = selectors.DefaultSelector()
+    sel.register(s, selectors.EVENT_WRITE)
+    view = memoryview(msg)
+    sent = 0
+    while sent < len(view):
+        sel.select()
+        try:
+            n = s.send(view[sent:])
+            if n == 0:
+                raise ConnectionError('Socket closed')
+            sent += n
+        except BlockingIOError:
+            continue
+    sel.unregister(s)
+    logging.info('Send OK.')
 
 class MessageFromClient:
     def __init__(self, paste: spclipbd.ClipboardContent) -> None:
