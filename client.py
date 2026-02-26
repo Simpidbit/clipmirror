@@ -106,7 +106,7 @@ class MessageMonitor:
 
     def check_msg(self) -> bool:
         try:
-            data = self.socket.recv(4096)
+            data = self.socket.recv(256 * 1024)
             logging.info(f'Receive data (data[:100]): {data[:100]} with length {len(data)}.')
 
             if not data:

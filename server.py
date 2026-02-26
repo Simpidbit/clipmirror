@@ -116,7 +116,7 @@ class MessagePeeker:
                 # 已有客户端发来的消息
                 logging.info('New msg from client!')
                 try:
-                    data = self.inputs[ri].recv(4096)
+                    data = self.inputs[ri].recv(256 * 1024)
                     logging.info(f'Receive data (data[:100]): {data[:100]} with length {len(data)}')
                     if data:
                         msg_from_client = self.parsers[ri].load(data)
