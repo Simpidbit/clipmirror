@@ -129,6 +129,9 @@ class MessagePeeker:
                     # 客户端断开
                     logging.info(f'Client ConnectionResetError')
                     pop_idx.append(ri)
+                except OSError:
+                    logging.info(f'Client OSError')
+                    pop_idx.append(ri)
         for ri in sorted(pop_idx, reverse = True):
             logging.info(f'Close: {self.inputs[ri].getpeername()}')
             self.inputs[ri].close()
